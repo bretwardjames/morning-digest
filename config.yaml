@@ -1,0 +1,67 @@
+content:
+  target_reading_minutes: 35
+  topics:
+    ai_technology:
+      angles:
+        - practical AI tools and workflows
+        - AI research and capability advances
+        - AI policy and regulation
+      weight: 1.0
+    business:
+      angles:
+        - small business and bootstrapping
+        - home care and Medicaid-funded healthcare business
+        - team management and leadership
+      weight: 1.0
+    politics:
+      angles:
+        - policy affecting small business
+        - Medicaid and healthcare policy
+        - tech regulation
+        - international and geopolitical developments
+        - general political news
+      weight: 0.8
+    health_longevity:
+      angles:
+        - agent discretion based on feedback signals
+      weight: 0.7
+
+  sources:
+    excluded_domains: []
+    preferred_domains: []
+    min_word_count: 300
+    max_word_count: 5000
+
+email:
+  accounts:
+    - id: gmail_primary
+      type: gmail
+      credentials_file: credentials/gmail_primary.json
+    - id: gmail_secondary
+      type: gmail
+      credentials_file: credentials/gmail_secondary.json
+    - id: outlook
+      type: outlook
+      credentials_file: credentials/outlook.json
+
+  importance_criteria:
+    - Requires a reply or decision
+    - From a known contact (not newsletter/marketing)
+    - Mentions money, deadlines, or legal matters
+    - Thread has been waiting more than 48 hours
+    - Direct question addressed to user
+
+drive:
+  inbox_folder_id: ""
+  liked_folder_id: ""
+  disliked_folder_id: ""
+  feedback_folder_id: ""
+  archive_folder_id: ""
+
+ragtime:
+  project_path: "."
+  namespace: "digest"
+
+schedule:
+  cron: "0 5 * * *"
+  timezone: "America/Denver"
