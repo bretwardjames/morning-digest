@@ -31,6 +31,5 @@ class EmailItem:
 
     @property
     def filename(self) -> str:
-        """Generate standardized filename: YYYY-MM-DD_email_account_slug.pdf"""
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        return f"{date_str}_email_{self.account_id}_{self.slug}.pdf"
+        """Generate filename: email_account_slug.pdf (no date — date lives in archive folders)."""
+        return f"email_{self.account_id}_{self.slug}.pdf"

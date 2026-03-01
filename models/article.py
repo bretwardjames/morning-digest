@@ -26,6 +26,5 @@ class Article:
 
     @property
     def filename(self) -> str:
-        """Generate standardized filename: YYYY-MM-DD_topic_slug.pdf"""
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        return f"{date_str}_{self.topic_tag}_{self.slug}.pdf"
+        """Generate filename: topic_slug.pdf (no date — date lives in archive folders)."""
+        return f"{self.topic_tag}_{self.slug}.pdf"

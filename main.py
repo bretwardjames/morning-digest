@@ -69,7 +69,7 @@ def run() -> None:
 
     # 4. Process emails
     logger.info("Step 4: Processing emails")
-    emails = email_processor.get_important_emails(config, ragtime)
+    emails, _ = email_processor.get_important_emails(config, ragtime)
     logger.info(f"Found {len(emails)} important emails")
 
     # 5. Generate PDFs

@@ -15,8 +15,15 @@ IMPORTANCE_THRESHOLD = 7
 NEW_SENDER_THRESHOLD = 4  # Lower bar — surface new senders for classification
 
 
-def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem]:
-    """Fetch emails from all accounts, score importance, return high-priority ones."""
+def get_important_emails(
+    config: dict, ragtime: RagtimeClient,
+) -> tuple[list[EmailItem], list[EmailItem]]:
+    """Fetch emails from all accounts, score importance.
+
+    Returns:
+        (surfaced, skipped) — surfaced emails have full bodies fetched,
+        skipped emails have metadata + scores only (for the briefing).
+    """
     all_emails: list[EmailItem] = []
 
     # 1. Fetch from each account
@@ -32,7 +39,7 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
 
     if not all_emails:
         logger.info("No emails found across any account")
-        return []
+        return [], []
 
     # 2. Flag new senders (no ragtime context)
     for email in all_emails:
@@ -43,17 +50,21 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
     # 3. Score importance (metadata only, no full bodies)
     scored = _score_emails(all_emails, config, ragtime)
 
-    # 4. Filter — known senders need >= 7, new senders need >= 4
-    #    New senders are surfaced at a lower bar so the user can classify them.
-    important = [
-        e for e in scored
-        if e.importance_score >= (NEW_SENDER_THRESHOLD if e.is_new_sender else IMPORTANCE_THRESHOLD)
-    ]
-    new_count = sum(1 for e in important if e.is_new_sender)
-    logger.info(f"{new_count} of {len(important)} surfaced emails are from new senders")
+    # 4. Split into surfaced and skipped
+    surfaced = []
+    skipped = []
+    for e in scored:
+        threshold = NEW_SENDER_THRESHOLD if e.is_new_sender else IMPORTANCE_THRESHOLD
+        if e.importance_score >= threshold:
+            surfaced.append(e)
+        else:
+            skipped.append(e)
 
-    # 5. Fetch full bodies for important emails only
-    for email in important:
+    new_count = sum(1 for e in surfaced if e.is_new_sender)
+    logger.info(f"{new_count} of {len(surfaced)} surfaced emails are from new senders")
+
+    # 5. Fetch full bodies for surfaced emails only
+    for email in surfaced:
         try:
             account = next(a for a in config["email"]["accounts"] if a["id"] == email.account_id)
             client = create_client(account)
@@ -64,8 +75,10 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
         except Exception as e:
             logger.warning(f"Failed to fetch body for {email.subject}: {e}")
 
-    logger.info(f"Found {len(important)} important emails out of {len(all_emails)} total")
-    return sorted(important, key=lambda e: e.importance_score, reverse=True)
+    surfaced.sort(key=lambda e: e.importance_score, reverse=True)
+    skipped.sort(key=lambda e: e.importance_score, reverse=True)
+    logger.info(f"Found {len(surfaced)} important, {len(skipped)} skipped out of {len(all_emails)} total")
+    return surfaced, skipped
 
 
 def _score_emails(emails: list[EmailItem], config: dict, ragtime: RagtimeClient) -> list[EmailItem]:

@@ -4,7 +4,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="${SCRIPT_DIR}/venv/bin/python"
-CRON_JOB="0 5 * * * cd ${SCRIPT_DIR} && ${PYTHON} main.py >> logs/digest.log 2>&1"
+CRON_JOB="0 5 * * * cd ${SCRIPT_DIR} && ${PYTHON} digest.py --run >> logs/digest.log 2>&1"
 
 # Check if cron job already exists
 if crontab -l 2>/dev/null | grep -qF "morning-digest"; then
