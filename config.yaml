@@ -66,9 +66,8 @@ delivery:
 
 feedback:
   # Base URL for the feedback web app (QR codes point here)
-  base_url: "http://localhost:5151"
-  # Set to your public URL if running behind a reverse proxy:
-  # base_url: "https://digest.yourdomain.com"
+  # Served via Tailscale Funnel — accessible from anywhere
+  base_url: "https://beast.tail99686.ts.net/digest-feedback"
 
 ragtime:
   project_path: "."

@@ -14,16 +14,17 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, request, render_template, abort
+from flask import Blueprint, Flask, request, render_template, abort
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+bp = Blueprint("feedback", __name__)
 
 FEEDBACK_DIR = Path(__file__).parent.parent / "data" / "feedback"
 
 
-@app.route("/article/<feedback_id>", methods=["GET", "POST"])
+@bp.route("/article/<feedback_id>", methods=["GET", "POST"])
 def article_feedback(feedback_id: str):
     """Article feedback form — rating, preference, and freeform text."""
     meta = _load_meta(feedback_id)
@@ -50,7 +51,7 @@ def article_feedback(feedback_id: str):
     return render_template("article_form.html", meta=meta, feedback_id=feedback_id)
 
 
-@app.route("/sender/<feedback_id>", methods=["GET", "POST"])
+@bp.route("/sender/<feedback_id>", methods=["GET", "POST"])
 def sender_feedback(feedback_id: str):
     """New sender classification form."""
     meta = _load_meta(feedback_id)
@@ -76,7 +77,7 @@ def sender_feedback(feedback_id: str):
     return render_template("sender_form.html", meta=meta, feedback_id=feedback_id)
 
 
-@app.route("/email/<feedback_id>", methods=["GET", "POST"])
+@bp.route("/email/<feedback_id>", methods=["GET", "POST"])
 def email_feedback(feedback_id: str):
     """Known-sender email feedback — was it worth surfacing."""
     meta = _load_meta(feedback_id)
@@ -116,6 +117,10 @@ def _save_submission(feedback_id: str, data: dict) -> None:
     out_path.write_text(json.dumps(data, indent=2))
     logger.info(f"Saved feedback: {out_path}")
 
+
+URL_PREFIX = "/digest-feedback"
+
+app.register_blueprint(bp, url_prefix=URL_PREFIX)
 
 if __name__ == "__main__":
     FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)

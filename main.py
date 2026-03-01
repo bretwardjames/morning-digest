@@ -52,23 +52,28 @@ def run() -> None:
         namespace=config["ragtime"]["namespace"],
     )
 
-    # 1. Process QR code feedback from previous run
-    logger.info("Step 1: Processing feedback submissions")
-    feedback_count = _process_feedback_submissions(ragtime)
-    logger.info(f"Processed {feedback_count} feedback submissions")
+    # 1. Archive yesterday's PDFs on Remarkable
+    logger.info("Step 1: Archiving previous digest on Remarkable")
+    _archive_remarkable(config)
 
-    # 2. Curate articles
-    logger.info("Step 2: Curating articles")
+    # 2. Process QR code feedback + detect skipped items
+    logger.info("Step 2: Processing feedback submissions")
+    feedback_count = _process_feedback_submissions(ragtime)
+    skip_count = _process_skipped_items(ragtime)
+    logger.info(f"Processed {feedback_count} feedback submissions, {skip_count} skipped items")
+
+    # 3. Curate articles
+    logger.info("Step 3: Curating articles")
     articles = curator.find_articles(config, ragtime)
     logger.info(f"Selected {len(articles)} articles")
 
-    # 3. Process emails
-    logger.info("Step 3: Processing emails")
+    # 4. Process emails
+    logger.info("Step 4: Processing emails")
     emails = email_processor.get_important_emails(config, ragtime)
     logger.info(f"Found {len(emails)} important emails")
 
-    # 4. Generate PDFs
-    logger.info("Step 4: Generating PDFs")
+    # 5. Generate PDFs
+    logger.info("Step 5: Generating PDFs")
     output_dir = f"/tmp/digest/{today}"
 
     article_pdfs = []
@@ -93,12 +98,12 @@ def run() -> None:
 
     all_pdfs = article_pdfs + email_pdfs
 
-    # 5. Deliver PDFs
-    logger.info("Step 5: Delivering PDFs")
+    # 6. Deliver PDFs
+    logger.info("Step 6: Delivering PDFs")
     _deliver_pdfs(config, all_pdfs)
 
-    # 6. Store run record in ragtime
-    logger.info("Step 6: Storing run record")
+    # 7. Store run record in ragtime
+    logger.info("Step 7: Storing run record")
     article_titles = [a.title for a in articles]
     email_subjects = [e.subject for e in emails]
     ragtime.remember(
@@ -111,6 +116,118 @@ def run() -> None:
     logger.info(
         f"=== Digest complete: {len(article_pdfs)} articles, {len(email_pdfs)} emails delivered ==="
     )
+
+
+def _archive_remarkable(config: dict) -> None:
+    """Move yesterday's PDFs from /Morning Digest to /Morning Digest/Archive."""
+    delivery = config.get("delivery", {})
+    rm_config = delivery.get("remarkable", {})
+    if not rm_config.get("enabled", False):
+        return
+
+    from integrations.remarkable import RemarkableClient
+
+    rm = RemarkableClient(rmapi_path=rm_config.get("rmapi_path", "rmapi"))
+    folder = rm_config.get("folder", "/Morning Digest")
+    archive = f"{folder}/Archive"
+    rm.ensure_folder(archive)
+
+    files = rm.list_files(folder)
+    moved = 0
+    for filename in files:
+        # Skip the Archive folder itself
+        if filename.strip().endswith("/") or filename.strip() == "Archive":
+            continue
+        try:
+            rm.move_file(f"{folder}/{filename.strip()}", archive)
+            moved += 1
+        except Exception as e:
+            logger.warning(f"Failed to archive {filename}: {e}")
+
+    if moved:
+        logger.info(f"Archived {moved} items from Remarkable")
+
+
+def _process_skipped_items(ragtime: RagtimeClient) -> int:
+    """Detect items that were sent but never got QR feedback.
+
+    Meta files older than 20 hours with no matching submission or processed
+    file are treated as skipped — a weak negative signal.
+    """
+    meta_dir = FEEDBACK_SUBMISSIONS_DIR.parent / "meta"
+    submissions_dir = FEEDBACK_SUBMISSIONS_DIR
+    processed_dir = FEEDBACK_SUBMISSIONS_DIR.parent / "processed"
+    skipped_dir = FEEDBACK_SUBMISSIONS_DIR.parent / "skipped"
+
+    if not meta_dir.exists():
+        return 0
+
+    skipped_dir.mkdir(exist_ok=True)
+    now = datetime.now()
+    count = 0
+
+    for meta_file in meta_dir.glob("*.json"):
+        feedback_id = meta_file.stem
+
+        # Skip if already submitted or processed
+        if (submissions_dir / f"{feedback_id}.json").exists():
+            continue
+        if (processed_dir / f"{feedback_id}.json").exists():
+            continue
+        if (skipped_dir / f"{feedback_id}.json").exists():
+            continue
+
+        # Skip if less than 20 hours old (give time to read + rate)
+        age_hours = (now - datetime.fromtimestamp(meta_file.stat().st_mtime)).total_seconds() / 3600
+        if age_hours < 20:
+            continue
+
+        # This item was skipped — store weak negative signal
+        try:
+            data = json.loads(meta_file.read_text())
+            _store_skip_signal(data, ragtime)
+
+            # Move meta to skipped so we don't reprocess
+            meta_file.rename(skipped_dir / meta_file.name)
+            count += 1
+        except Exception as e:
+            logger.warning(f"Error processing skip for {feedback_id}: {e}")
+
+    return count
+
+
+def _store_skip_signal(meta: dict, ragtime: RagtimeClient) -> None:
+    """Store a weak negative signal for a skipped item."""
+    item_type = meta.get("type", "")
+
+    if item_type == "article":
+        title = meta.get("title", "unknown")
+        topic = meta.get("topic_tag", "")
+        domain = meta.get("source_domain", "")
+        ragtime.remember(
+            f"Skipped article (no feedback): '{title}' from {domain}. "
+            f"Topic: [{topic}]. Weak signal: less interest in this type.",
+            type="preference",
+            component="articles",
+        )
+    elif item_type == "sender":
+        sender = meta.get("sender_name", "")
+        email = meta.get("sender_email", "")
+        ragtime.remember(
+            f"Skipped new sender classification: {sender} <{email}>. "
+            f"User did not classify — may indicate low priority.",
+            type="context",
+            component="contacts",
+        )
+    elif item_type == "email":
+        sender = meta.get("sender_name", "")
+        subject = meta.get("subject", "")
+        ragtime.remember(
+            f"Skipped email feedback: '{subject}' from {sender}. "
+            f"User did not engage — weak signal against surfacing similar.",
+            type="context",
+            component="contacts",
+        )
 
 
 def _deliver_pdfs(config: dict, pdf_paths: list[str]) -> None:
