@@ -9,6 +9,7 @@ from pypdf import PdfReader
 from integrations.google_drive import GoogleDriveClient
 from integrations.ragtime import RagtimeClient
 from models.feedback import Feedback
+from models.sender_feedback import SenderFeedback
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,14 @@ FIELD_MAP = {
     "tag_health": "Health",
     "tag_other": "Other",
     "other_text": "other_tag",
+}
+
+# Sender onboarding form fields (must match email_pdf.py form generation)
+SENDER_FIELD_MAP = {
+    "who_is_this": "who_is_this",
+    "sender_importance": "importance",
+    "sender_context": "context",
+    "worth_surfacing": "was_email_worth_surfacing",
 }
 
 
@@ -50,12 +59,20 @@ def process_returned_forms(config: dict, drive: GoogleDriveClient, ragtime: Ragt
             local_path = f"/tmp/digest_feedback_{file_info['id']}.pdf"
             drive.download_file(file_info["id"], local_path)
 
-            feedback = _parse_pdf_form(local_path, file_info["name"])
-            if feedback:
-                _store_feedback(feedback, ragtime)
-                feedbacks.append(feedback)
+            is_email_pdf = "_email_" in file_info["name"]
 
-            # Move to archive
+            if is_email_pdf:
+                # Try sender onboarding form first, fall back to generic
+                sender_fb = _parse_sender_form(local_path, file_info["name"])
+                if sender_fb:
+                    _store_sender_feedback(sender_fb, ragtime)
+                    logger.info(f"Stored sender context for {sender_fb.sender_email}")
+            else:
+                feedback = _parse_pdf_form(local_path, file_info["name"])
+                if feedback:
+                    _store_feedback(feedback, ragtime)
+                    feedbacks.append(feedback)
+
             if archive_folder_id:
                 drive.move_file(file_info["id"], archive_folder_id)
 
@@ -162,6 +179,78 @@ def _store_feedback(feedback: Feedback, ragtime: RagtimeClient) -> None:
     # If freeform text exists, extract keywords via Claude
     if feedback.liked_text or feedback.disliked_text:
         _extract_and_store_topic_signals(feedback, ragtime)
+
+
+def _parse_sender_form(pdf_path: str, filename: str) -> SenderFeedback | None:
+    """Extract sender onboarding form fields from an email PDF."""
+    reader = PdfReader(pdf_path)
+    fields = reader.get_form_text_fields() or {}
+    all_fields = reader.get_fields() or {}
+
+    # Check if this PDF has sender form fields
+    has_sender_fields = any(k in all_fields for k in SENDER_FIELD_MAP)
+    if not has_sender_fields:
+        return None
+
+    # Extract sender metadata from the hidden footer line
+    sender_email = ""
+    sender_name = ""
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        for line in text.split("\n"):
+            if "sender_email:" in line:
+                for part in line.split("|"):
+                    part = part.strip()
+                    if part.startswith("sender_email:"):
+                        sender_email = part.split(":", 1)[1].strip()
+                    elif part.startswith("sender_name:"):
+                        sender_name = part.split(":", 1)[1].strip()
+
+    # Parse importance radio
+    importance = "unknown"
+    raw_imp = all_fields.get("sender_importance", {})
+    if isinstance(raw_imp, dict):
+        val = str(raw_imp.get("/V", "")).lower()
+        for level in ("always", "sometimes", "rarely", "never"):
+            if level in val:
+                importance = level
+                break
+
+    # Parse worth surfacing radio
+    worth = ""
+    raw_worth = all_fields.get("worth_surfacing", {})
+    if isinstance(raw_worth, dict):
+        val = str(raw_worth.get("/V", "")).lower()
+        if "yes" in val:
+            worth = "yes"
+        elif "no" in val:
+            worth = "no"
+
+    return SenderFeedback(
+        source_filename=filename,
+        sender_name=sender_name,
+        sender_email=sender_email,
+        who_is_this=fields.get("who_is_this", ""),
+        importance=importance,
+        context=fields.get("sender_context", ""),
+        was_email_worth_surfacing=worth,
+        raw_fields={**fields, **{k: str(v) for k, v in all_fields.items()}},
+    )
+
+
+def _store_sender_feedback(sender_fb: SenderFeedback, ragtime: RagtimeClient) -> None:
+    """Store sender classification in ragtime as contact context."""
+    memory = sender_fb.to_ragtime_memory()
+    ragtime.remember(memory, type="context", component="contacts")
+
+    # If they said "never surface", store a strong negative signal
+    if sender_fb.importance == "never":
+        ragtime.remember(
+            f"SUPPRESS emails from {sender_fb.sender_name} <{sender_fb.sender_email}>. "
+            f"User marked as never surface.",
+            type="preference",
+            component="contacts",
+        )
 
 
 def _extract_and_store_topic_signals(feedback: Feedback, ragtime: RagtimeClient) -> None:

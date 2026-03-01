@@ -18,7 +18,10 @@ PAGE_MARGIN = 0.75 * inch
 
 
 def generate(email: EmailItem, output_dir: str = "/tmp/digest") -> str:
-    """Generate a PDF for an email with a blank notes page appended.
+    """Generate a PDF for an email.
+
+    For new senders: appends a sender classification form + notes page.
+    For known senders: appends just a blank notes page.
 
     Returns the path to the generated PDF file.
     """
@@ -64,12 +67,16 @@ def generate(email: EmailItem, output_dir: str = "/tmp/digest") -> str:
             story.append(Paragraph(paragraph, styles["Body"]))
             story.append(Spacer(1, 10))
 
-    # Blank notes page
+    # Sender classification form for new senders, then notes page
+    if email.is_new_sender:
+        story.append(PageBreak())
+        story.extend(_build_sender_form(styles, email))
+
+    # Notes page
     story.append(PageBreak())
     story.append(Paragraph("Notes", styles["NotesHeader"]))
     story.append(Spacer(1, 12))
 
-    # Lined page for handwritten notes on Boox
     for _ in range(25):
         story.append(Paragraph("_" * 65, styles["Lines"]))
 
@@ -96,6 +103,63 @@ def _get_readable_body(email: EmailItem) -> str:
         return converter.handle(email.body_html)
 
     return email.snippet
+
+
+def _build_sender_form(styles: dict, email: EmailItem) -> list:
+    """Build the sender onboarding form for new/unknown senders.
+
+    This form appears between the email body and the notes page, only for
+    emails from senders not yet in ragtime. The filled form feeds back into
+    ragtime as contact context on the next run.
+    """
+    elements = []
+
+    elements.append(Paragraph("New Sender — Help me learn", styles["FormHeader"]))
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(
+        f"I don't have context for <b>{email.sender_name}</b> "
+        f"&lt;{email.sender_email}&gt; yet.",
+        styles["FormLabel"],
+    ))
+    elements.append(Spacer(1, 16))
+
+    elements.append(Paragraph("Who is this person / what is this sender?", styles["FormLabel"]))
+    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
+    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph(
+        "How important are their emails generally?",
+        styles["FormLabel"],
+    ))
+    elements.append(Paragraph(
+        "( ) Always read  ( ) Sometimes  ( ) Rarely  ( ) Never surface",
+        styles["FormLabel"],
+    ))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph("Any specific context?", styles["FormLabel"]))
+    elements.append(Paragraph(
+        "(e.g. \"my business partner — anything about clients is urgent\")",
+        styles["FormHint"],
+    ))
+    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
+    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
+    elements.append(Spacer(1, 12))
+
+    elements.append(Paragraph("Was this email worth surfacing?", styles["FormLabel"]))
+    elements.append(Paragraph("( ) Yes  ( ) No", styles["FormLabel"]))
+    elements.append(Spacer(1, 16))
+
+    # Hidden metadata for the feedback parser
+    elements.append(Paragraph(
+        f"<font size='7' color='#aaaaaa'>"
+        f"sender_email:{email.sender_email} | sender_name:{email.sender_name} | "
+        f"account:{email.account_id}</font>",
+        styles["Footer"],
+    ))
+
+    return elements
 
 
 def _build_styles() -> dict:
@@ -138,5 +202,25 @@ def _build_styles() -> dict:
             parent=base["Normal"],
             fontSize=9,
             textColor=HexColor("#999999"),
+        ),
+        "FormHeader": ParagraphStyle(
+            "FormHeader",
+            parent=base["Heading2"],
+            fontSize=18,
+            spaceAfter=8,
+        ),
+        "FormLabel": ParagraphStyle(
+            "FormLabel",
+            parent=base["Normal"],
+            fontSize=14,
+            leading=20,
+            spaceBefore=4,
+        ),
+        "FormHint": ParagraphStyle(
+            "FormHint",
+            parent=base["Normal"],
+            fontSize=11,
+            leading=14,
+            textColor=HexColor("#888888"),
         ),
     }

@@ -17,6 +17,7 @@ class EmailItem:
     suggested_action: str = ""
     body_text: str = ""
     body_html: str = ""
+    is_new_sender: bool = False
     recipients: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 

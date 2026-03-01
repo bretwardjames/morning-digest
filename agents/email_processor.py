@@ -12,6 +12,7 @@ from models.email_item import EmailItem
 logger = logging.getLogger(__name__)
 
 IMPORTANCE_THRESHOLD = 7
+NEW_SENDER_THRESHOLD = 4  # Lower bar — surface new senders for classification
 
 
 def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem]:
@@ -33,13 +34,25 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
         logger.info("No emails found across any account")
         return []
 
-    # 2. Score importance (metadata only, no full bodies)
+    # 2. Flag new senders (no ragtime context)
+    for email in all_emails:
+        sender_context = ragtime.search(email.sender_email)
+        if not sender_context or not sender_context[0].get("text", "").strip():
+            email.is_new_sender = True
+
+    # 3. Score importance (metadata only, no full bodies)
     scored = _score_emails(all_emails, config, ragtime)
 
-    # 3. Filter to important ones
-    important = [e for e in scored if e.importance_score >= IMPORTANCE_THRESHOLD]
+    # 4. Filter — known senders need >= 7, new senders need >= 4
+    #    New senders are surfaced at a lower bar so the user can classify them.
+    important = [
+        e for e in scored
+        if e.importance_score >= (NEW_SENDER_THRESHOLD if e.is_new_sender else IMPORTANCE_THRESHOLD)
+    ]
+    new_count = sum(1 for e in important if e.is_new_sender)
+    logger.info(f"{new_count} of {len(important)} surfaced emails are from new senders")
 
-    # 4. Fetch full bodies for important emails only
+    # 5. Fetch full bodies for important emails only
     for email in important:
         try:
             account = next(a for a in config["email"]["accounts"] if a["id"] == email.account_id)
