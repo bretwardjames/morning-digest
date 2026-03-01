@@ -1,4 +1,4 @@
-"""Email PDF generator — renders email as readable PDF with blank notes page."""
+"""Email PDF generator — renders email as readable PDF with QR feedback codes."""
 
 import logging
 from pathlib import Path
@@ -8,8 +8,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image
 
+from generators.qr import generate_sender_qr, generate_email_qr, QR_SIZE_POINTS
 from models.email_item import EmailItem
 
 logger = logging.getLogger(__name__)
@@ -17,11 +18,12 @@ logger = logging.getLogger(__name__)
 PAGE_MARGIN = 0.75 * inch
 
 
-def generate(email: EmailItem, output_dir: str = "/tmp/digest") -> str:
+def generate(email: EmailItem, output_dir: str = "/tmp/digest", feedback_base_url: str = "") -> str:
     """Generate a PDF for an email.
 
-    For new senders: appends a sender classification form + notes page.
-    For known senders: appends just a blank notes page.
+    For new senders: includes a 'classify this sender' QR code.
+    For known senders: includes a 'was this worth it?' QR code.
+    Both get a blank notes page.
 
     Returns the path to the generated PDF file.
     """
@@ -67,10 +69,13 @@ def generate(email: EmailItem, output_dir: str = "/tmp/digest") -> str:
             story.append(Paragraph(paragraph, styles["Body"]))
             story.append(Spacer(1, 10))
 
-    # Sender classification form for new senders, then notes page
-    if email.is_new_sender:
-        story.append(PageBreak())
-        story.extend(_build_sender_form(styles, email))
+    # QR feedback code
+    if feedback_base_url:
+        story.append(Spacer(1, 24))
+        if email.is_new_sender:
+            story.extend(_build_sender_qr_section(styles, email, feedback_base_url))
+        else:
+            story.extend(_build_email_qr_section(styles, email, feedback_base_url))
 
     # Notes page
     story.append(PageBreak())
@@ -90,6 +95,62 @@ def generate(email: EmailItem, output_dir: str = "/tmp/digest") -> str:
     return pdf_path
 
 
+def _build_sender_qr_section(styles: dict, email: EmailItem, base_url: str) -> list:
+    """Build the new-sender QR code section."""
+    qr_image, feedback_id = generate_sender_qr(
+        sender_name=email.sender_name,
+        sender_email=email.sender_email,
+        account_id=email.account_id,
+        subject=email.subject,
+        base_url=base_url,
+    )
+
+    elements = []
+    elements.append(Paragraph("&mdash;" * 20, styles["QRLabel"]))
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(
+        f"<b>New sender:</b> {email.sender_name} &lt;{email.sender_email}&gt;",
+        styles["QRLabel"],
+    ))
+    elements.append(Paragraph("Scan to classify this sender", styles["QRLabel"]))
+    elements.append(Spacer(1, 8))
+
+    qr_img = Image(qr_image, width=QR_SIZE_POINTS, height=QR_SIZE_POINTS)
+    qr_img.hAlign = "CENTER"
+    elements.append(qr_img)
+
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(f"<font size='8' color='#aaaaaa'>{feedback_id}</font>", styles["QRLabel"]))
+
+    return elements
+
+
+def _build_email_qr_section(styles: dict, email: EmailItem, base_url: str) -> list:
+    """Build the known-sender email feedback QR code section."""
+    qr_image, feedback_id = generate_email_qr(
+        sender_name=email.sender_name,
+        sender_email=email.sender_email,
+        subject=email.subject,
+        account_id=email.account_id,
+        base_url=base_url,
+    )
+
+    elements = []
+    elements.append(Paragraph("&mdash;" * 20, styles["QRLabel"]))
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph("Scan to give feedback on this email", styles["QRLabel"]))
+    elements.append(Spacer(1, 8))
+
+    qr_img = Image(qr_image, width=QR_SIZE_POINTS, height=QR_SIZE_POINTS)
+    qr_img.hAlign = "CENTER"
+    elements.append(qr_img)
+
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(f"<font size='8' color='#aaaaaa'>{feedback_id}</font>", styles["QRLabel"]))
+
+    return elements
+
+
 def _get_readable_body(email: EmailItem) -> str:
     """Extract readable text from email body, preferring plain text."""
     if email.body_text:
@@ -103,63 +164,6 @@ def _get_readable_body(email: EmailItem) -> str:
         return converter.handle(email.body_html)
 
     return email.snippet
-
-
-def _build_sender_form(styles: dict, email: EmailItem) -> list:
-    """Build the sender onboarding form for new/unknown senders.
-
-    This form appears between the email body and the notes page, only for
-    emails from senders not yet in ragtime. The filled form feeds back into
-    ragtime as contact context on the next run.
-    """
-    elements = []
-
-    elements.append(Paragraph("New Sender — Help me learn", styles["FormHeader"]))
-    elements.append(Spacer(1, 4))
-    elements.append(Paragraph(
-        f"I don't have context for <b>{email.sender_name}</b> "
-        f"&lt;{email.sender_email}&gt; yet.",
-        styles["FormLabel"],
-    ))
-    elements.append(Spacer(1, 16))
-
-    elements.append(Paragraph("Who is this person / what is this sender?", styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph(
-        "How important are their emails generally?",
-        styles["FormLabel"],
-    ))
-    elements.append(Paragraph(
-        "( ) Always read  ( ) Sometimes  ( ) Rarely  ( ) Never surface",
-        styles["FormLabel"],
-    ))
-    elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph("Any specific context?", styles["FormLabel"]))
-    elements.append(Paragraph(
-        "(e.g. \"my business partner — anything about clients is urgent\")",
-        styles["FormHint"],
-    ))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph("Was this email worth surfacing?", styles["FormLabel"]))
-    elements.append(Paragraph("( ) Yes  ( ) No", styles["FormLabel"]))
-    elements.append(Spacer(1, 16))
-
-    # Hidden metadata for the feedback parser
-    elements.append(Paragraph(
-        f"<font size='7' color='#aaaaaa'>"
-        f"sender_email:{email.sender_email} | sender_name:{email.sender_name} | "
-        f"account:{email.account_id}</font>",
-        styles["Footer"],
-    ))
-
-    return elements
 
 
 def _build_styles() -> dict:
@@ -203,24 +207,11 @@ def _build_styles() -> dict:
             fontSize=9,
             textColor=HexColor("#999999"),
         ),
-        "FormHeader": ParagraphStyle(
-            "FormHeader",
-            parent=base["Heading2"],
-            fontSize=18,
-            spaceAfter=8,
-        ),
-        "FormLabel": ParagraphStyle(
-            "FormLabel",
-            parent=base["Normal"],
-            fontSize=14,
-            leading=20,
-            spaceBefore=4,
-        ),
-        "FormHint": ParagraphStyle(
-            "FormHint",
+        "QRLabel": ParagraphStyle(
+            "QRLabel",
             parent=base["Normal"],
             fontSize=11,
-            leading=14,
             textColor=HexColor("#888888"),
+            alignment=1,  # center
         ),
     }

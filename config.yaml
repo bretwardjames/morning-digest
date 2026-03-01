@@ -51,12 +51,24 @@ email:
     - Thread has been waiting more than 48 hours
     - Direct question addressed to user
 
-drive:
-  inbox_folder_id: ""
-  liked_folder_id: ""
-  disliked_folder_id: ""
-  feedback_folder_id: ""
-  archive_folder_id: ""
+delivery:
+  # Primary: reMarkable tablet via rmapi
+  remarkable:
+    enabled: true
+    folder: "/Morning Digest"
+    rmapi_path: "rmapi"       # path to rmapi binary
+
+  # Secondary: Google Drive (for Boox or other devices)
+  drive:
+    enabled: false
+    inbox_folder_id: ""
+    archive_folder_id: ""
+
+feedback:
+  # Base URL for the feedback web app (QR codes point here)
+  base_url: "http://localhost:5151"
+  # Set to your public URL if running behind a reverse proxy:
+  # base_url: "https://digest.yourdomain.com"
 
 ragtime:
   project_path: "."

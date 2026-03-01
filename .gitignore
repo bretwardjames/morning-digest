@@ -23,6 +23,9 @@ credentials/
 # Logs
 logs/*.log
 
+# Feedback data (meta files, submissions, processed)
+data/
+
 # IDE
 .idea/
 .vscode/

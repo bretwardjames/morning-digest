@@ -1,19 +1,15 @@
-"""Article PDF generator — renders article text with appended fillable feedback form."""
+"""Article PDF generator — renders article text with a feedback QR code."""
 
 import logging
-from io import BytesIO
 from pathlib import Path
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle,
-)
-from reportlab.pdfbase import pdfform
-from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 
+from generators.qr import generate_article_qr, QR_SIZE_POINTS
 from models.article import Article
 
 logger = logging.getLogger(__name__)
@@ -26,8 +22,8 @@ SUBTITLE_FONT_SIZE = 12
 PAGE_MARGIN = 0.75 * inch
 
 
-def generate(article: Article, output_dir: str = "/tmp/digest") -> str:
-    """Generate a PDF for an article with an appended feedback form.
+def generate(article: Article, output_dir: str = "/tmp/digest", feedback_base_url: str = "") -> str:
+    """Generate a PDF for an article with a feedback QR code at the end.
 
     Returns the path to the generated PDF file.
     """
@@ -64,9 +60,10 @@ def generate(article: Article, output_dir: str = "/tmp/digest") -> str:
             story.append(Paragraph(paragraph, styles["Body"]))
             story.append(Spacer(1, 12))
 
-    # Feedback form on new page
-    story.append(PageBreak())
-    story.extend(_build_feedback_form(styles, article))
+    # Feedback QR code at the end of the article
+    if feedback_base_url:
+        story.append(Spacer(1, 24))
+        story.extend(_build_feedback_section(styles, article, feedback_base_url))
 
     doc.build(story)
     logger.info(f"Generated article PDF: {pdf_path}")
@@ -97,63 +94,39 @@ def _build_styles() -> dict:
             fontSize=BODY_FONT_SIZE,
             leading=BODY_LEADING,
         ),
-        "FormHeader": ParagraphStyle(
-            "FormHeader",
-            parent=base["Heading2"],
-            fontSize=18,
-            spaceAfter=12,
-        ),
-        "FormLabel": ParagraphStyle(
-            "FormLabel",
+        "QRLabel": ParagraphStyle(
+            "QRLabel",
             parent=base["Normal"],
-            fontSize=14,
-            leading=20,
-            spaceBefore=8,
+            fontSize=11,
+            textColor=HexColor("#888888"),
+            alignment=1,  # center
         ),
     }
 
 
-def _build_feedback_form(styles: dict, article: Article) -> list:
-    """Build the feedback form page elements.
+def _build_feedback_section(styles: dict, article: Article, base_url: str) -> list:
+    """Build the feedback QR code section at the end of the article."""
+    qr_image, feedback_id = generate_article_qr(
+        title=article.title,
+        topic_tag=article.topic_tag,
+        source_domain=article.source_domain,
+        base_url=base_url,
+    )
 
-    Note: AcroForm fields require canvas-level drawing. This builds the
-    static layout; the actual form fields are added via a custom page template
-    or post-processing. For the initial scaffold, we use placeholder text
-    that will be replaced with actual AcroForm fields in Phase 1 validation.
-    """
     elements = []
-    elements.append(Paragraph("Feedback", styles["FormHeader"]))
-    elements.append(Paragraph(f"Article: {article.title}", styles["FormLabel"]))
+    # Horizontal rule
     elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph("Did you read this article?  [ ]", styles["FormLabel"]))
+    elements.append(Paragraph("&mdash;" * 20, styles["QRLabel"]))
+    elements.append(Spacer(1, 8))
+    elements.append(Paragraph("Scan to rate this article", styles["QRLabel"]))
     elements.append(Spacer(1, 8))
 
-    elements.append(Paragraph(
-        "Rating:  1 ( )  2 ( )  3 ( )  4 ( )  5 ( )  6 ( )  7 ( )  8 ( )  9 ( )  10 ( )",
-        styles["FormLabel"],
-    ))
-    elements.append(Spacer(1, 8))
+    # QR code as centered image
+    qr_img = Image(qr_image, width=QR_SIZE_POINTS, height=QR_SIZE_POINTS)
+    qr_img.hAlign = "CENTER"
+    elements.append(qr_img)
 
-    elements.append(Paragraph("What did you like about it?", styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph("What did you like less?", styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Paragraph("_" * 60, styles["FormLabel"]))
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph(
-        "Want more like this?  ( ) Yes, more  ( ) No, less  ( ) Neutral",
-        styles["FormLabel"],
-    ))
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph(
-        "Tags:  [ ] AI/tech  [ ] Business  [ ] Politics  [ ] Health  [ ] Other: ___",
-        styles["FormLabel"],
-    ))
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(f"<font size='8' color='#aaaaaa'>{feedback_id}</font>", styles["QRLabel"]))
 
     return elements

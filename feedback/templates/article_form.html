@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Rate: {{ meta.title }}{% endblock %}
+{% block content %}
+<h1>{{ meta.title }}</h1>
+<div class="subtitle">{{ meta.source_domain }} · {{ meta.topic_tag }}</div>
+
+<form method="post">
+    <label>Rating</label>
+    <div class="rating-group">
+        {% for i in range(1, 11) %}
+        <label><input type="radio" name="rating" value="{{ i }}">{{ i }}</label>
+        {% endfor %}
+    </div>
+
+    <label>Want more like this?</label>
+    <div class="radio-group">
+        <label><input type="radio" name="want_more" value="more"><span>More</span></label>
+        <label><input type="radio" name="want_more" value="neutral" checked><span>Neutral</span></label>
+        <label><input type="radio" name="want_more" value="less"><span>Less</span></label>
+    </div>
+
+    <label>What did you like?</label>
+    <textarea name="liked" placeholder="Optional"></textarea>
+
+    <label>What did you like less?</label>
+    <textarea name="disliked" placeholder="Optional"></textarea>
+
+    <label>Topics</label>
+    <div class="check-group">
+        <label><input type="checkbox" name="tags" value="ai_tech"><span>AI/Tech</span></label>
+        <label><input type="checkbox" name="tags" value="business"><span>Business</span></label>
+        <label><input type="checkbox" name="tags" value="politics"><span>Politics</span></label>
+        <label><input type="checkbox" name="tags" value="health"><span>Health</span></label>
+    </div>
+
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}

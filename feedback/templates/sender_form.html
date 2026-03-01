@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}New sender: {{ meta.sender_name }}{% endblock %}
+{% block content %}
+<h1>New Sender</h1>
+<div class="subtitle">{{ meta.sender_name }} &lt;{{ meta.sender_email }}&gt;</div>
+
+<form method="post">
+    <label>Who is this?</label>
+    <textarea name="who_is_this" placeholder="e.g. Business partner, newsletter, vendor..."></textarea>
+
+    <label>How important are their emails?</label>
+    <div class="radio-group">
+        <label><input type="radio" name="importance" value="always"><span>Always read</span></label>
+        <label><input type="radio" name="importance" value="sometimes"><span>Sometimes</span></label>
+        <label><input type="radio" name="importance" value="rarely"><span>Rarely</span></label>
+        <label><input type="radio" name="importance" value="never"><span>Never</span></label>
+    </div>
+
+    <label>Any context?</label>
+    <p class="hint">e.g. "anything about clients is urgent"</p>
+    <textarea name="context" placeholder="Optional"></textarea>
+
+    <label>Was this email worth surfacing?</label>
+    <div class="radio-group">
+        <label><input type="radio" name="worth_surfacing" value="yes"><span>Yes</span></label>
+        <label><input type="radio" name="worth_surfacing" value="no"><span>No</span></label>
+    </div>
+
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}

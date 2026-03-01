@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Email: {{ meta.subject }}{% endblock %}
+{% block content %}
+<h1>Email Feedback</h1>
+<div class="subtitle">From {{ meta.sender_name }} · {{ meta.subject }}</div>
+
+<form method="post">
+    <label>Was this worth surfacing?</label>
+    <div class="radio-group">
+        <label><input type="radio" name="worth_surfacing" value="yes"><span>Yes</span></label>
+        <label><input type="radio" name="worth_surfacing" value="no"><span>No</span></label>
+    </div>
+
+    <label>Notes</label>
+    <textarea name="notes" placeholder="Optional — any context for future scoring"></textarea>
+
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}
