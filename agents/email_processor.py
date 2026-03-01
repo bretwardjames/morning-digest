@@ -5,8 +5,7 @@ import logging
 
 import anthropic
 
-from integrations.gmail import GmailClient
-from integrations.outlook import OutlookClient
+from integrations.email_clients import create_client
 from integrations.ragtime import RagtimeClient
 from models.email_item import EmailItem
 
@@ -22,7 +21,7 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
     # 1. Fetch from each account
     for account in config["email"]["accounts"]:
         try:
-            client = _create_client(account, config)
+            client = create_client(account)
             client.authenticate()
             emails = client.fetch_recent_emails()
             all_emails.extend(emails)
@@ -44,7 +43,7 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
     for email in important:
         try:
             account = next(a for a in config["email"]["accounts"] if a["id"] == email.account_id)
-            client = _create_client(account, config)
+            client = create_client(account)
             client.authenticate()
             plain, html = client.fetch_full_body(email.message_id)
             email.body_text = plain
@@ -54,22 +53,6 @@ def get_important_emails(config: dict, ragtime: RagtimeClient) -> list[EmailItem
 
     logger.info(f"Found {len(important)} important emails out of {len(all_emails)} total")
     return sorted(important, key=lambda e: e.importance_score, reverse=True)
-
-
-def _create_client(account: dict, config: dict) -> GmailClient | OutlookClient:
-    """Create the appropriate email client based on account type."""
-    if account["type"] == "gmail":
-        return GmailClient(account["id"], account["credentials_file"])
-    elif account["type"] == "outlook":
-        import os
-        return OutlookClient(
-            account_id=account["id"],
-            client_id=os.environ["AZURE_CLIENT_ID"],
-            tenant_id=os.environ["AZURE_TENANT_ID"],
-            credentials_file=account["credentials_file"],
-        )
-    else:
-        raise ValueError(f"Unknown account type: {account['type']}")
 
 
 def _score_emails(emails: list[EmailItem], config: dict, ragtime: RagtimeClient) -> list[EmailItem]:
